@@ -14,24 +14,18 @@ static int g_vertbufSize = 0;
 void ImGui_ImplRW_RenderDrawData(ImDrawData* draw_data)
 {
     ImGuiIO& io = ImGui::GetIO();
-
     if (io.DisplaySize.x <= 0.0f || io.DisplaySize.y <= 0.0f)
         return;
 
     if (g_vertbuf == nullptr || g_vertbufSize < draw_data->TotalVtxCount) {
-        if (g_vertbuf) {
-            RwFree(g_vertbuf);
-            g_vertbuf = nullptr;
-        }
+        if (g_vertbuf) RwFree(g_vertbuf);
         g_vertbufSize = draw_data->TotalVtxCount + 5000;
         g_vertbuf = (RwIm2DVertex*)RwMalloc(sizeof(RwIm2DVertex) * g_vertbufSize, 0);
     }
 
     float xoff = 0.0f, yoff = 0.0f;
-
 #ifdef RWHALFPIXEL
-    xoff = -0.5f;
-    yoff = 0.5f;
+    xoff = -0.5f; yoff = 0.5f;
 #endif
 
     RwCamera* cam = (RwCamera*)RwCameraGetCurrentCamera();
@@ -48,11 +42,13 @@ void ImGui_ImplRW_RenderDrawData(ImDrawData* draw_data)
             RwIm2DVertexSetCameraZ(&vtx_dst[i], RwCameraGetNearClipPlane(cam));
             RwIm2DVertexSetRecipCameraZ(&vtx_dst[i], recipZ);
 
+            // Premultiplied alpha fix
             unsigned int col = vtx_src[i].col;
+            float alpha = ((col >> 24) & 0xFF) / 255.0f;
             RwIm2DVertexSetIntRGBA(&vtx_dst[i],
-                col & 0xFF,
-                (col >> 8) & 0xFF,
-                (col >> 16) & 0xFF,
+                (int)((col & 0xFF) * alpha),
+                (int)(((col >> 8) & 0xFF) * alpha),
+                (int)(((col >> 16) & 0xFF) * alpha),
                 (col >> 24) & 0xFF);
 
             RwIm2DVertexSetU(&vtx_dst[i], vtx_src[i].uv.x, recipZ);
@@ -62,8 +58,8 @@ void ImGui_ImplRW_RenderDrawData(ImDrawData* draw_data)
     }
 
     // Save render states
-    int vertexAlpha, srcBlend, dstBlend, ztest, addrU, addrV, filter, cullmode;
     void* tex;
+    int vertexAlpha, srcBlend, dstBlend, ztest, addrU, addrV, filter, cullmode, shadeMode;
     RwRenderStateGet(rwRENDERSTATEVERTEXALPHAENABLE, &vertexAlpha);
     RwRenderStateGet(rwRENDERSTATESRCBLEND, &srcBlend);
     RwRenderStateGet(rwRENDERSTATEDESTBLEND, &dstBlend);
@@ -73,6 +69,7 @@ void ImGui_ImplRW_RenderDrawData(ImDrawData* draw_data)
     RwRenderStateGet(rwRENDERSTATETEXTUREADDRESSV, &addrV);
     RwRenderStateGet(rwRENDERSTATETEXTUREFILTER, &filter);
     RwRenderStateGet(rwRENDERSTATECULLMODE, &cullmode);
+    RwRenderStateGet(rwRENDERSTATESHADEMODE, &shadeMode);
 
     // Setup render state for ImGui
     RwRenderStateSet(rwRENDERSTATEVERTEXALPHAENABLE, (void*)TRUE);
@@ -80,6 +77,7 @@ void ImGui_ImplRW_RenderDrawData(ImDrawData* draw_data)
     RwRenderStateSet(rwRENDERSTATEDESTBLEND, (void*)rwBLENDINVSRCALPHA);
     RwRenderStateSet(rwRENDERSTATEZTESTENABLE, (void*)FALSE);
     RwRenderStateSet(rwRENDERSTATECULLMODE, (void*)rwCULLMODECULLNONE);
+    RwRenderStateSet(rwRENDERSTATESHADEMODE, (void*)rwSHADEMODEGOURAUD);
 
     int vtx_offset = 0;
     for (int n = 0; n < draw_data->CmdListsCount; n++) {
@@ -94,9 +92,6 @@ void ImGui_ImplRW_RenderDrawData(ImDrawData* draw_data)
                 RwTexture* tex2 = (RwTexture*)pcmd->GetTexID();
                 if (tex2 && tex2->raster) {
                     RwRenderStateSet(rwRENDERSTATETEXTURERASTER, tex2->raster);
-                }
-                else {
-                    RwRenderStateSet(rwRENDERSTATETEXTURERASTER, nullptr);
                 }
                 RwIm2DRenderIndexedPrimitive(rwPRIMTYPETRILIST,
                     g_vertbuf + vtx_offset, cmd_list->VtxBuffer.Size,
@@ -117,6 +112,7 @@ void ImGui_ImplRW_RenderDrawData(ImDrawData* draw_data)
     RwRenderStateSet(rwRENDERSTATETEXTUREADDRESSV, (void*)addrV);
     RwRenderStateSet(rwRENDERSTATETEXTUREFILTER, (void*)filter);
     RwRenderStateSet(rwRENDERSTATECULLMODE, (void*)cullmode);
+    RwRenderStateSet(rwRENDERSTATESHADEMODE, (void*)shadeMode);
 }
 
 bool ImGui_ImplRW_Init()
